@@ -158,3 +158,14 @@ history.txt
 # oss-maintainer local state
 .maintainer/profile.local.toml
 .maintainer/state/
+
+# Machine-local deployment, papers, credentials and verification artifacts
+/.local-deployment/
+
+# Agent instructions and local agent configuration stay out of new Git additions.
+# Already tracked upstream files require a separate reviewed untracking decision.
+AGENTS.md
+AGENTS.override.md
+CLAUDE.md
+/.codex/
+/.claude/

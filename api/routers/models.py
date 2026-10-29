@@ -22,6 +22,7 @@ from open_notebook.ai.model_discovery import (
     sync_provider_models,
 )
 from open_notebook.ai.models import DefaultModels, Model
+from open_notebook.ai.reasoning import supported_reasoning_efforts
 from open_notebook.domain.credential import Credential
 from open_notebook.exceptions import (
     InvalidInputError,
@@ -190,6 +191,11 @@ async def get_models(
                 credential=model.credential,
                 created=str(model.created),
                 updated=str(model.updated),
+                supported_reasoning_efforts=(
+                    supported_reasoning_efforts(model.provider, model.name)
+                    if model.type == "language"
+                    else []
+                ),
             )
             for model in models
         ]
@@ -247,6 +253,11 @@ async def create_model(model_data: ModelCreate):
             credential=new_model.credential,
             created=str(new_model.created),
             updated=str(new_model.updated),
+            supported_reasoning_efforts=(
+                supported_reasoning_efforts(new_model.provider, new_model.name)
+                if new_model.type == "language"
+                else []
+            ),
         )
     except HTTPException:
         raise
@@ -693,6 +704,13 @@ async def get_models_by_provider(provider: str):
                 credential=model.get("credential"),
                 created=str(model.get("created", "")),
                 updated=str(model.get("updated", "")),
+                supported_reasoning_efforts=(
+                    supported_reasoning_efforts(
+                        model.get("provider", ""), model.get("name", "")
+                    )
+                    if model.get("type") == "language"
+                    else []
+                ),
             )
             for model in models
         ]

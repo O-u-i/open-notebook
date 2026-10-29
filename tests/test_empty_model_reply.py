@@ -171,7 +171,7 @@ def test_notebook_chat_failed_turn_is_rolled_back_and_retry_is_clean():
 
     client = TestClient(app)
     graph = _toy_graph(["", "the answer"])
-    session = MagicMock(model_override=None, save=AsyncMock())
+    session = MagicMock(model_override=None, reasoning_effort=None, save=AsyncMock())
     with (
         patch("api.routers.chat.chat_graph", graph),
         patch(

@@ -116,6 +116,7 @@ class ModelResponse(BaseModel):
     credential: Optional[str] = None
     created: str
     updated: str
+    supported_reasoning_efforts: List[str] = Field(default_factory=list)
 
 
 class DefaultModelsResponse(BaseModel):

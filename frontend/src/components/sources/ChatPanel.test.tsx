@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ChatPanel } from './ChatPanel'
 
@@ -106,5 +106,15 @@ describe('ChatPanel composer', () => {
     fireEvent.keyDown(textarea, { key: 'Enter', ctrlKey: true })
 
     expect(onSendMessage).not.toHaveBeenCalled()
+  })
+
+  it('preserves a draft when an asynchronous send fails', async () => {
+    const send = vi.fn().mockResolvedValue(false)
+    render(<ChatPanel messages={[]} isStreaming={false} contextIndicators={null} onSendMessage={send} />)
+    const textarea = getTextarea()
+    fireEvent.change(textarea, { target: { value: 'keep my draft' } })
+    fireEvent.click(screen.getByRole('button'))
+    await waitFor(() => expect(send).toHaveBeenCalledOnce())
+    expect(textarea.value).toBe('keep my draft')
   })
 })

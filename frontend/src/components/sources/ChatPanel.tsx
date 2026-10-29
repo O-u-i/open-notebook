@@ -12,9 +12,11 @@ import { MarkdownRenderer } from '@/components/ui/markdown-renderer'
 import {
   SourceChatMessage,
   SourceChatContextIndicator,
-  BaseChatSession
+  BaseChatSession,
+  ReasoningEffort,
 } from '@/lib/types/api'
 import { ModelSelector } from './ModelSelector'
+import { ReasoningSelector } from './ReasoningSelector'
 import { ContextIndicator } from '@/components/common/ContextIndicator'
 import { SessionManager } from '@/components/sources/SessionManager'
 import { MessageActions } from '@/components/sources/MessageActions'
@@ -35,9 +37,15 @@ interface ChatPanelProps {
   messages: SourceChatMessage[]
   isStreaming: boolean
   contextIndicators: SourceChatContextIndicator | null
-  onSendMessage: (message: string, modelOverride?: string) => void
+  onSendMessage: (message: string, modelOverride?: string, reasoningEffort?: ReasoningEffort | null) => void | boolean | Promise<boolean>
   modelOverride?: string
   onModelChange?: (model?: string) => void
+  reasoningEffort?: ReasoningEffort | null
+  onReasoningChange?: (effort: ReasoningEffort | null) => void
+  draft?: string
+  onDraftChange?: (draft: string) => void
+  onComposerFocus?: () => void
+  settingsDisabled?: boolean
   // Session management props
   sessions?: BaseChatSession[]
   currentSessionId?: string | null
@@ -62,6 +70,12 @@ export function ChatPanel({
   onSendMessage,
   modelOverride,
   onModelChange,
+  reasoningEffort,
+  onReasoningChange,
+  draft,
+  onDraftChange,
+  onComposerFocus,
+  settingsDisabled,
   sessions = [],
   currentSessionId,
   onCreateSession,
@@ -221,6 +235,12 @@ export function ChatPanel({
           isStreaming={isStreaming}
           modelOverride={modelOverride}
           onModelChange={onModelChange}
+          reasoningEffort={reasoningEffort}
+          onReasoningChange={onReasoningChange}
+          draft={draft}
+          onDraftChange={onDraftChange}
+          onComposerFocus={onComposerFocus}
+          settingsDisabled={settingsDisabled}
         />
       </CardContent>
     </Card>
@@ -232,26 +252,47 @@ export function ChatPanel({
 // Composer owns the input state so keystrokes (including IME composition) only
 // re-render this small component instead of the whole message history.
 interface ChatComposerProps {
-  onSendMessage: (message: string, modelOverride?: string) => void
+  onSendMessage: (message: string, modelOverride?: string, reasoningEffort?: ReasoningEffort | null) => void | boolean | Promise<boolean>
   isStreaming: boolean
   modelOverride?: string
   onModelChange?: (model?: string) => void
+  reasoningEffort?: ReasoningEffort | null
+  onReasoningChange?: (effort: ReasoningEffort | null) => void
+  draft?: string
+  onDraftChange?: (draft: string) => void
+  onComposerFocus?: () => void
+  settingsDisabled?: boolean
 }
 
 function ChatComposer({
   onSendMessage,
   isStreaming,
   modelOverride,
-  onModelChange
+  onModelChange,
+  reasoningEffort,
+  onReasoningChange,
+  draft,
+  onDraftChange,
+  onComposerFocus,
+  settingsDisabled,
 }: ChatComposerProps) {
   const { t } = useTranslation()
   const chatInputId = useId()
-  const [input, setInput] = useState('')
+  const [localInput, setLocalInput] = useState('')
+  const input = draft ?? localInput
+  const setInput = onDraftChange ?? setLocalInput
+  const latestInput = useRef(input)
+  latestInput.current = input
 
   const handleSend = () => {
-    if (input.trim() && !isStreaming) {
-      onSendMessage(input.trim(), modelOverride)
-      setInput('')
+    if (input.trim() && !isStreaming && !settingsDisabled) {
+      const accepted = onReasoningChange
+        ? onSendMessage(input.trim(), modelOverride, reasoningEffort)
+        : onSendMessage(input.trim(), modelOverride)
+      if (accepted instanceof Promise) {
+        const sent = input
+        void accepted.then(ok => { if (ok && latestInput.current === sent) setInput('') })
+      } else if (accepted !== false) setInput('')
     }
   }
 
@@ -274,12 +315,12 @@ function ChatComposer({
     <div className="flex-shrink-0 p-4 space-y-3 border-t">
       {/* Model selector */}
       {onModelChange && (
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-muted-foreground">{t('chat.model')}</span>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {onReasoningChange ? <ReasoningSelector modelId={modelOverride} effort={reasoningEffort} onChange={onReasoningChange} disabled={isStreaming || settingsDisabled} /> : <span className="text-xs text-muted-foreground">{t('chat.model')}</span>}
           <ModelSelector
             currentModel={modelOverride}
             onModelChange={onModelChange}
-            disabled={isStreaming}
+            disabled={isStreaming || settingsDisabled}
           />
         </div>
       )}
@@ -291,15 +332,16 @@ function ChatComposer({
           autoComplete="off"
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          onFocus={onComposerFocus}
           onKeyDown={handleKeyDown}
           placeholder={`${t('chat.sendPlaceholder')} (${t('chat.pressToSend', { key: keyHint })})`}
-          disabled={isStreaming}
+          disabled={isStreaming || settingsDisabled}
           className="flex-1 min-h-[40px] max-h-[100px] resize-none py-2 px-3 min-w-0"
           rows={1}
         />
         <Button
           onClick={handleSend}
-          disabled={!input.trim() || isStreaming}
+          disabled={!input.trim() || isStreaming || settingsDisabled}
           size="icon"
           className="h-[40px] w-[40px] flex-shrink-0"
         >

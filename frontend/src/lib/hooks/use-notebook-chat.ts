@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { getApiErrorMessage } from '@/lib/utils/error-handler'
@@ -9,12 +9,15 @@ import { chatApi } from '@/lib/api/chat'
 import { QUERY_KEYS } from '@/lib/api/query-client'
 import {
   NotebookChatMessage,
+  NotebookChatSessionWithMessages,
   CreateNotebookChatSessionRequest,
   UpdateNotebookChatSessionRequest,
   SourceListResponse,
-  NoteResponse
+  NoteResponse,
+  ReasoningEffort,
 } from '@/lib/types/api'
 import { ContextSelections } from '@/app/(dashboard)/notebooks/[id]/page'
+import { useModelDefaults, useModels } from '@/lib/hooks/use-models'
 
 interface UseNotebookChatParams {
   notebookId: string
@@ -33,6 +36,17 @@ export function useNotebookChat({ notebookId, sources, notes, contextSelections 
   const [charCount, setCharCount] = useState<number>(0)
   // Pending model override for when user changes model before a session exists
   const [pendingModelOverride, setPendingModelOverride] = useState<string | null>(null)
+  // undefined = new-session recommendation; null = explicitly use provider default.
+  const [pendingReasoning, setPendingReasoning] = useState<ReasoningEffort | null | undefined>(undefined)
+  const { data: models = [] } = useModels()
+  const { data: defaults } = useModelDefaults()
+  const pendingModel = models.find(model => model.id === (pendingModelOverride || defaults?.default_chat_model))
+  const pendingReasoningEffort = pendingReasoning === undefined
+    ? (pendingModel?.supported_reasoning_efforts?.includes('medium') ? 'medium' : null)
+    : pendingReasoning
+  const selectedSessionRef = useRef(currentSessionId)
+  selectedSessionRef.current = currentSessionId
+  const sendingSessionRef = useRef<string | null>(null)
 
   // Fetch sessions for this notebook
   const {
@@ -48,7 +62,6 @@ export function useNotebookChat({ notebookId, sources, notes, contextSelections 
   // Fetch current session with messages
   const {
     data: currentSession,
-    refetch: refetchCurrentSession
   } = useQuery({
     queryKey: QUERY_KEYS.notebookChatSession(currentSessionId!),
     queryFn: () => chatApi.getSession(currentSessionId!),
@@ -57,10 +70,10 @@ export function useNotebookChat({ notebookId, sources, notes, contextSelections 
 
   // Update messages when current session changes
   useEffect(() => {
-    if (currentSession?.messages) {
+    if (currentSession?.messages && sendingSessionRef.current !== currentSessionId) {
       setMessages(currentSession.messages)
     }
-  }, [currentSession])
+  }, [currentSession, currentSessionId])
 
   // Auto-select most recent session when sessions are loaded
   useEffect(() => {
@@ -73,6 +86,7 @@ export function useNotebookChat({ notebookId, sources, notes, contextSelections 
 
   // Create session mutation
   const createSessionMutation = useMutation({
+    retry: false,
     mutationFn: (data: CreateNotebookChatSessionRequest) =>
       chatApi.createSession(data),
     onSuccess: (newSession) => {
@@ -90,16 +104,18 @@ export function useNotebookChat({ notebookId, sources, notes, contextSelections 
 
   // Update session mutation
   const updateSessionMutation = useMutation({
+    retry: false,
     mutationFn: ({ sessionId, data }: {
       sessionId: string
       data: UpdateNotebookChatSessionRequest
     }) => chatApi.updateSession(sessionId, data),
-    onSuccess: () => {
+    onSuccess: (updated, variables) => {
+      queryClient.setQueryData<NotebookChatSessionWithMessages>(QUERY_KEYS.notebookChatSession(variables.sessionId), old => old ? { ...old, ...updated } : old)
       queryClient.invalidateQueries({
         queryKey: QUERY_KEYS.notebookChatSessions(notebookId)
       })
       queryClient.invalidateQueries({
-        queryKey: QUERY_KEYS.notebookChatSession(currentSessionId!)
+        queryKey: QUERY_KEYS.notebookChatSession(variables.sessionId)
       })
       toast.success(t('chat.sessionUpdated'))
     },
@@ -111,6 +127,7 @@ export function useNotebookChat({ notebookId, sources, notes, contextSelections 
 
   // Delete session mutation
   const deleteSessionMutation = useMutation({
+    retry: false,
     mutationFn: (sessionId: string) =>
       chatApi.deleteSession(sessionId),
     onSuccess: (_, deletedId) => {
@@ -173,8 +190,11 @@ export function useNotebookChat({ notebookId, sources, notes, contextSelections 
   }, [notebookId, sources, notes, contextSelections])
 
   // Send message (synchronous, no streaming)
-  const sendMessage = useCallback(async (message: string, modelOverride?: string) => {
+  const sendMessage = useCallback(async (message: string, modelOverride?: string, reasoningEffort?: ReasoningEffort | null) => {
     let sessionId = currentSessionId
+    const effort = reasoningEffort === undefined
+      ? (currentSessionId ? currentSession?.reasoning_effort ?? null : pendingReasoningEffort)
+      : reasoningEffort
 
     // Auto-create session if none exists
     if (!sessionId) {
@@ -186,12 +206,15 @@ export function useNotebookChat({ notebookId, sources, notes, contextSelections 
           notebook_id: notebookId,
           title: defaultTitle,
           // Include pending model override when creating session
-          model_override: pendingModelOverride ?? undefined
+          model_override: pendingModelOverride ?? undefined,
+          reasoning_effort: effort,
         })
         sessionId = newSession.id
+        selectedSessionRef.current = sessionId
         setCurrentSessionId(sessionId)
         // Clear pending model override now that it's applied to the session
         setPendingModelOverride(null)
+        setPendingReasoning(undefined)
         queryClient.invalidateQueries({
           queryKey: QUERY_KEYS.notebookChatSessions(notebookId)
         })
@@ -211,6 +234,7 @@ export function useNotebookChat({ notebookId, sources, notes, contextSelections 
     }
     setMessages(prev => [...prev, userMessage])
     setIsSending(true)
+    sendingSessionRef.current = sessionId
 
     try {
       // Build context and send message
@@ -219,21 +243,23 @@ export function useNotebookChat({ notebookId, sources, notes, contextSelections 
         session_id: sessionId,
         message,
         context,
-        model_override: modelOverride ?? (currentSession?.model_override ?? undefined)
+        model_override: modelOverride ?? (currentSession?.model_override ?? undefined),
+        reasoning_effort: effort,
       })
 
       // Update messages with API response
-      setMessages(response.messages)
+      if (selectedSessionRef.current === sessionId) setMessages(response.messages)
 
       // Refetch current session to get updated data
-      await refetchCurrentSession()
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.notebookChatSession(sessionId) })
     } catch (err: unknown) {
       const error = err as { response?: { data?: { detail?: string } }, message?: string };
       console.error('Error sending message:', error)
       toast.error(getApiErrorMessage(error.response?.data?.detail || error.message, (key) => t(key), 'apiErrors.failedToSendMessage'))
       // Remove optimistic message on error
-      setMessages(prev => prev.filter(msg => !msg.id.startsWith('temp-')))
+      if (selectedSessionRef.current === sessionId) setMessages(prev => prev.filter(msg => msg.id !== userMessage.id))
     } finally {
+      sendingSessionRef.current = null
       setIsSending(false)
     }
   }, [
@@ -241,14 +267,16 @@ export function useNotebookChat({ notebookId, sources, notes, contextSelections 
     currentSessionId,
     currentSession,
     pendingModelOverride,
+    pendingReasoningEffort,
     buildContext,
-    refetchCurrentSession,
     queryClient,
     t
   ])
 
   // Switch session
   const switchSession = useCallback((sessionId: string) => {
+    selectedSessionRef.current = sessionId
+    setMessages([])
     setCurrentSessionId(sessionId)
   }, [])
 
@@ -256,9 +284,11 @@ export function useNotebookChat({ notebookId, sources, notes, contextSelections 
   const createSession = useCallback((title?: string) => {
     return createSessionMutation.mutate({
       notebook_id: notebookId,
-      title
+      title,
+      model_override: pendingModelOverride ?? undefined,
+      reasoning_effort: pendingReasoningEffort,
     })
-  }, [createSessionMutation, notebookId])
+  }, [createSessionMutation, notebookId, pendingModelOverride, pendingReasoningEffort])
 
   // Update session
   const updateSession = useCallback((sessionId: string, data: UpdateNotebookChatSessionRequest) => {
@@ -279,12 +309,18 @@ export function useNotebookChat({ notebookId, sources, notes, contextSelections 
       // Session exists - update it directly
       updateSessionMutation.mutate({
         sessionId: currentSessionId,
-        data: { model_override: model }
+        data: { model_override: model, reasoning_effort: null }
       })
     } else {
       // No session yet - store as pending
       setPendingModelOverride(model)
+      setPendingReasoning(undefined)
     }
+  }, [currentSessionId, updateSessionMutation])
+
+  const setReasoningEffort = useCallback((effort: ReasoningEffort | null) => {
+    if (currentSessionId) updateSessionMutation.mutate({ sessionId: currentSessionId, data: { reasoning_effort: effort } })
+    else setPendingReasoning(effort)
   }, [currentSessionId, updateSessionMutation])
 
   // Update token/char counts when context selections change
@@ -307,9 +343,11 @@ export function useNotebookChat({ notebookId, sources, notes, contextSelections 
     messages,
     isSending,
     loadingSessions,
+    isUpdatingSession: updateSessionMutation.isPending,
     tokenCount,
     charCount,
     pendingModelOverride,
+    pendingReasoningEffort,
 
     // Actions
     createSession,
@@ -318,6 +356,7 @@ export function useNotebookChat({ notebookId, sources, notes, contextSelections 
     switchSession,
     sendMessage,
     setModelOverride,
+    setReasoningEffort,
     refetchSessions
   }
 }

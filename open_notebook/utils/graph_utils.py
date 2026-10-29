@@ -1,9 +1,15 @@
 import asyncio
+import threading
 from typing import Any
 
 from langchain_core.messages import BaseMessage, RemoveMessage
 from langchain_core.runnables import RunnableConfig
 from loguru import logger
+
+from open_notebook.exceptions import RateLimitError
+
+_active_turns: set[str] = set()
+_turns_lock = threading.Lock()
 
 
 async def get_session_message_count(graph, session_id: str) -> int:
@@ -50,12 +56,23 @@ def invoke_chat_turn(
     rollback run together in the worker thread, even if the request task is
     cancelled while waiting (client disconnect).
     """
+    thread_id = config.get("configurable", {}).get("thread_id")
+    # Held in the worker thread, not the HTTP task: a browser disconnect must
+    # not allow a second turn while the first provider call is still running.
+    with _turns_lock:
+        if thread_id in _active_turns:
+            raise RateLimitError("This session is still generating a reply")
+        if thread_id:
+            _active_turns.add(thread_id)
     try:
         # LangGraph accepts a partial state dict at runtime, but its typed
         # signature requires the full state type.
         return graph.invoke(input=state, config=config)
     except Exception:
-        thread_id = config.get("configurable", {}).get("thread_id")
         if thread_id:
             discard_unanswered_message(graph, thread_id, user_message)
         raise
+    finally:
+        if thread_id:
+            with _turns_lock:
+                _active_turns.discard(thread_id)

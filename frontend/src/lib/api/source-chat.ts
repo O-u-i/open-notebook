@@ -1,11 +1,11 @@
 import apiClient from './client'
-import { getAuthToken } from '@/lib/auth-token'
 import {
   SourceChatSession,
   SourceChatSessionWithMessages,
   CreateSourceChatSessionRequest,
   UpdateSourceChatSessionRequest,
-  SendMessageRequest
+  SendMessageRequest,
+  SourceChatPurpose
 } from '@/lib/types/api'
 
 export const sourceChatApi = {
@@ -20,9 +20,9 @@ export const sourceChatApi = {
     return response.data
   },
 
-  listSessions: async (sourceId: string) => {
+  listSessions: async (sourceId: string, purpose: SourceChatPurpose = 'main') => {
     const response = await apiClient.get<SourceChatSession[]>(
-      `/sources/${sourceId}/chat/sessions`
+      `/sources/${sourceId}/chat/sessions`, { params: { purpose } }
     )
     return response.data
   },
@@ -47,27 +47,13 @@ export const sourceChatApi = {
   },
 
   // Messaging with streaming
-  sendMessage: (sourceId: string, sessionId: string, data: SendMessageRequest) => {
-    // Get auth token using the same logic as apiClient interceptor
-    const token = getAuthToken()
-
-    // Use relative URL to leverage Next.js rewrites
-    // This works both in dev (Next.js proxy) and production (Docker network)
-    const url = `/api/sources/${sourceId}/chat/sessions/${sessionId}/messages`
-
-    // Use fetch with ReadableStream for SSE
-    return fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token && { 'Authorization': `Bearer ${token}` })
-      },
-      body: JSON.stringify(data)
-    }).then(response => {
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`)
-      }
-      return response.body
-    })
-  }
+  sendMessage: async (sourceId: string, sessionId: string, data: SendMessageRequest, signal?: AbortSignal) => {
+    // Axios' fetch adapter exposes a ReadableStream while retaining the shared
+    // runtime URL, authentication and error interceptors.
+    const response = await apiClient.post<ReadableStream<Uint8Array>>(
+      `/sources/${sourceId}/chat/sessions/${sessionId}/messages`, data,
+      { adapter: 'fetch', responseType: 'stream', signal }
+    )
+    return response.data
+  },
 }

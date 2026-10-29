@@ -102,9 +102,10 @@ export const sourcesApi = {
     return response.data
   },
 
-  downloadFile: async (id: string): Promise<AxiosResponse<Blob>> => {
+  downloadFile: async (id: string, signal?: AbortSignal): Promise<AxiosResponse<Blob>> => {
     return apiClient.get(`/sources/${id}/download`, {
       responseType: 'blob',
+      signal,
     })
   },
 }

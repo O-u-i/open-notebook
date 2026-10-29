@@ -25,6 +25,7 @@ class ThreadState(TypedDict):
     context: Optional[str]
     context_config: Optional[dict]
     model_override: Optional[str]
+    reasoning_effort: Optional[str]
 
 
 def call_model_with_messages(state: ThreadState, config: RunnableConfig) -> dict:
@@ -43,7 +44,12 @@ def call_model_with_messages(state: ThreadState, config: RunnableConfig) -> dict
                 asyncio.set_event_loop(new_loop)
                 return new_loop.run_until_complete(
                     provision_langchain_model(
-                        str(payload), model_id, "chat", max_tokens=8192
+                        str(payload),
+                        model_id,
+                        "chat",
+                        max_tokens=8192,
+                        interactive_chat=True,
+                        reasoning_effort=state.get("reasoning_effort"),
                     )
                 )
             finally:
@@ -67,6 +73,8 @@ def call_model_with_messages(state: ThreadState, config: RunnableConfig) -> dict
                     model_id,
                     "chat",
                     max_tokens=8192,
+                    interactive_chat=True,
+                    reasoning_effort=state.get("reasoning_effort"),
                 )
             )
 

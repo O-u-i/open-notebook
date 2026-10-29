@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/prepare-pdfjs.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/prepare-pdfjs.mjs",
     "build": "next build",
     "start": "node start-server.js",
     "lint": "eslint src/",
@@ -44,6 +46,7 @@
     "katex": "^0.16.47",
     "lucide-react": "^0.525.0",
     "next": "^16.3.8",
+    "pdfjs-dist": "6.4.299",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-hook-form": "^7.89.0",
@@ -80,6 +83,7 @@
     "vitest": "^4.1.8"
   },
   "overrides": {
+    "@napi-rs/canvas": "1.0.10",
     "ws": "8.21.0",
     "brace-expansion": "1.1.21",
     "ajv": "6.15.0",

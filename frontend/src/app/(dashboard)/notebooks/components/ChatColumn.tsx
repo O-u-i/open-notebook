@@ -98,9 +98,12 @@ export function ChatColumn({ notebookId, contextSelections, sources, sourcesLoad
       messages={chat.messages}
       isStreaming={chat.isSending}
       contextIndicators={null}
-      onSendMessage={(message, modelOverride) => chat.sendMessage(message, modelOverride)}
+      onSendMessage={(message, modelOverride, effort) => { void chat.sendMessage(message, modelOverride, effort) }}
       modelOverride={chat.currentSession?.model_override ?? chat.pendingModelOverride ?? undefined}
       onModelChange={(model) => chat.setModelOverride(model ?? null)}
+      reasoningEffort={chat.currentSession ? chat.currentSession.reasoning_effort : chat.pendingReasoningEffort}
+      settingsDisabled={chat.isUpdatingSession}
+      onReasoningChange={chat.setReasoningEffort}
       sessions={chat.sessions}
       currentSessionId={chat.currentSessionId}
       onCreateSession={(title) => chat.createSession(title)}

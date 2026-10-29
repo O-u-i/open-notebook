@@ -15,10 +15,13 @@
 
 # next.js
 /.next/
+/.next-local-*/
 /out/
 
 # production
 /build
+# Generated, version-pinned PDF.js runtime assets; never paper content.
+/public/pdfjs/
 
 # misc
 .DS_Store
@@ -38,6 +41,7 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
+/tsconfig.local-build.json
 next-env.d.ts
 
 doc_exports/

@@ -138,6 +138,8 @@ export interface APIError {
 }
 
 // Source Chat Types
+export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra'
+export type SourceChatPurpose = 'main' | 'reader_assistant'
 // Base session interface with common fields
 export interface BaseChatSession {
   id: string
@@ -146,11 +148,12 @@ export interface BaseChatSession {
   updated: string
   message_count?: number
   model_override?: string | null
+  reasoning_effort?: ReasoningEffort | null
 }
 
 export interface SourceChatSession extends BaseChatSession {
   source_id: string
-  model_override?: string
+  purpose?: SourceChatPurpose
 }
 
 export interface SourceChatMessage {
@@ -175,16 +178,20 @@ export interface CreateSourceChatSessionRequest {
   source_id: string
   title?: string
   model_override?: string
+  reasoning_effort?: ReasoningEffort | null
+  purpose?: SourceChatPurpose
 }
 
 export interface UpdateSourceChatSessionRequest {
   title?: string
-  model_override?: string
+  model_override?: string | null
+  reasoning_effort?: ReasoningEffort | null
 }
 
 export interface SendMessageRequest {
   message: string
   model_override?: string
+  reasoning_effort?: ReasoningEffort | null
 }
 
 export interface SourceChatStreamEvent {
@@ -215,11 +222,13 @@ export interface CreateNotebookChatSessionRequest {
   notebook_id: string
   title?: string
   model_override?: string
+  reasoning_effort?: ReasoningEffort | null
 }
 
 export interface UpdateNotebookChatSessionRequest {
   title?: string
   model_override?: string | null
+  reasoning_effort?: ReasoningEffort | null
 }
 
 export interface SendNotebookChatMessageRequest {
@@ -230,6 +239,7 @@ export interface SendNotebookChatMessageRequest {
     notes: Array<Record<string, unknown>>
   }
   model_override?: string
+  reasoning_effort?: ReasoningEffort | null
 }
 
 export interface BuildContextRequest {

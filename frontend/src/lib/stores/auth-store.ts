@@ -43,12 +43,11 @@ export const useAuthStore = create<AuthState>()(
           })
 
           const required = response.data.auth_enabled || false
-          set({ authRequired: required })
-
-          // If auth is not required, mark as authenticated
-          if (!required) {
-            set({ isAuthenticated: true, token: 'not-required' })
-          }
+          // Update both fields together so consumers never observe a resolved
+          // no-auth status with an unauthenticated state between updates.
+          set(required
+            ? { authRequired: true }
+            : { authRequired: false, isAuthenticated: true, token: 'not-required' })
 
           return required
         } catch (error) {

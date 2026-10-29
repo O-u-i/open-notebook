@@ -23,11 +23,13 @@ export function useAuth() {
     if (hasHydrated) {
       // First check if auth is required
       if (authRequired === null) {
-        checkAuthRequired().then((required) => {
+        void checkAuthRequired().then((required) => {
           // If auth is required, check if we have valid credentials
           if (required) {
             checkAuth()
           }
+        }).catch(() => {
+          // The store exposes the connection error; allow the login page to show it.
         })
       } else if (authRequired) {
         // Auth is required, check credentials
@@ -60,7 +62,9 @@ export function useAuth() {
 
   return {
     isAuthenticated,
-    isLoading: isLoading || !hasHydrated, // Treat lack of hydration as loading
+    // Do not redirect a deep link before the initial auth-status request returns.
+    // If that request fails, the login page must be allowed to show its error.
+    isLoading: isLoading || !hasHydrated || (authRequired === null && !error),
     error,
     login: handleLogin,
     logout: handleLogout

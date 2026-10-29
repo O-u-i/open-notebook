@@ -7,258 +7,201 @@ import { getApiErrorMessage } from '@/lib/utils/error-handler'
 import { useTranslation } from '@/lib/hooks/use-translation'
 import { sourceChatApi } from '@/lib/api/source-chat'
 import {
-  SourceChatSession,
-  SourceChatMessage,
-  SourceChatContextIndicator,
-  CreateSourceChatSessionRequest,
-  UpdateSourceChatSessionRequest
+  SourceChatSession, SourceChatSessionWithMessages, SourceChatMessage, SourceChatContextIndicator,
+  CreateSourceChatSessionRequest, UpdateSourceChatSessionRequest,
+  SourceChatPurpose, ReasoningEffort,
 } from '@/lib/types/api'
 
-export function useSourceChat(sourceId: string) {
+interface SourceChatOptions {
+  sessionId?: string | null
+  onSessionChange?: (sessionId: string | null) => void
+  purpose?: SourceChatPurpose
+}
+
+/** Each async result belongs to its captured session, not the currently visible tab. */
+export function useSourceChat(sourceId: string, options: SourceChatOptions = {}) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
-  const [messages, setMessages] = useState<SourceChatMessage[]>([])
-  const [isStreaming, setIsStreaming] = useState(false)
-  const [contextIndicators, setContextIndicators] = useState<SourceChatContextIndicator | null>(null)
-  const abortControllerRef = useRef<AbortController | null>(null)
+  const purpose = options.purpose ?? 'main'
+  const controlled = options.sessionId !== undefined
+  const [localSessionId, setLocalSessionId] = useState<string | null>(null)
+  const currentSessionId = controlled ? options.sessionId! : localSessionId
+  const onSessionChangeRef = useRef(options.onSessionChange)
+  onSessionChangeRef.current = options.onSessionChange
+  const [messagesBySession, setMessagesBySession] = useState<Record<string, SourceChatMessage[]>>({})
+  const [indicatorsBySession, setIndicatorsBySession] = useState<Record<string, SourceChatContextIndicator | null>>({})
+  const [streamingBySession, setStreamingBySession] = useState<Record<string, boolean>>({})
+  const controllers = useRef(new Map<string, AbortController>())
+  const inFlight = useRef(new Set<string>())
 
-  // Fetch sessions
+  const selectSession = useCallback((id: string | null) => {
+    if (controlled) onSessionChangeRef.current?.(id)
+    else setLocalSessionId(id)
+  }, [controlled])
+
+  const sessionListKey = ['sourceChatSessions', sourceId, purpose]
   const { data: sessions = [], isLoading: loadingSessions, refetch: refetchSessions } = useQuery<SourceChatSession[]>({
-    queryKey: ['sourceChatSessions', sourceId],
-    queryFn: () => sourceChatApi.listSessions(sourceId),
-    enabled: !!sourceId
+    queryKey: sessionListKey,
+    queryFn: () => sourceChatApi.listSessions(sourceId, purpose),
+    enabled: !!sourceId,
+    retry: false,
   })
-
-  // Fetch current session with messages
-  const { data: currentSession, refetch: refetchCurrentSession } = useQuery({
+  const { data: currentSession } = useQuery({
     queryKey: ['sourceChatSession', sourceId, currentSessionId],
     queryFn: () => sourceChatApi.getSession(sourceId, currentSessionId!),
-    enabled: !!sourceId && !!currentSessionId
+    enabled: !!sourceId && !!currentSessionId,
+    retry: false,
   })
 
-  // Update messages when session changes
   useEffect(() => {
-    if (currentSession?.messages) {
-      setMessages(currentSession.messages)
-    }
-    // Also clears the badge when the session goes away (deleted / switched).
-    setContextIndicators(currentSession?.context_indicators ?? null)
-  }, [currentSession])
+    if (!currentSessionId || currentSession?.id !== currentSessionId || inFlight.current.has(currentSessionId)) return
+    setMessagesBySession(prev => ({ ...prev, [currentSessionId]: currentSession.messages ?? [] }))
+    setIndicatorsBySession(prev => ({ ...prev, [currentSessionId]: currentSession.context_indicators ?? null }))
+  }, [currentSession, currentSessionId])
 
-  // Auto-select most recent session when sessions are loaded
   useEffect(() => {
-    if (sessions.length > 0 && !currentSessionId) {
-      // Find most recent session (sessions are sorted by created date desc from API)
-      const mostRecentSession = sessions[0]
-      setCurrentSessionId(mostRecentSession.id)
-    }
-  }, [sessions, currentSessionId])
+    if (!controlled && sessions.length > 0 && !currentSessionId) selectSession(sessions[0].id)
+  }, [controlled, sessions, currentSessionId, selectSession])
 
-  // Create session mutation
+  useEffect(() => {
+    const active = controllers.current
+    return () => { active.forEach(controller => controller.abort()) }
+  }, [])
+
+  const showError = useCallback((err: unknown, fallback: string) => {
+    const error = err as { response?: { data?: { detail?: string } }, message?: string }
+    toast.error(getApiErrorMessage(error.response?.data?.detail || error.message, key => t(key), fallback))
+  }, [t])
+
   const createSessionMutation = useMutation({
-    mutationFn: (data: Omit<CreateSourceChatSessionRequest, 'source_id'>) => 
-      sourceChatApi.createSession(sourceId, data),
-    onSuccess: (newSession) => {
-      queryClient.invalidateQueries({ queryKey: ['sourceChatSessions', sourceId] })
-      setCurrentSessionId(newSession.id)
+    retry: false,
+    mutationFn: (data: Omit<CreateSourceChatSessionRequest, 'source_id'>) =>
+      sourceChatApi.createSession(sourceId, { ...data, purpose }),
+    onSuccess: newSession => {
+      void queryClient.invalidateQueries({ queryKey: ['sourceChatSessions', sourceId, purpose] })
+      selectSession(newSession.id)
       toast.success(t('chat.sessionCreated'))
     },
-    onError: (err: unknown) => {
-      const error = err as { response?: { data?: { detail?: string } }, message?: string };
-      toast.error(getApiErrorMessage(error.response?.data?.detail || error.message, (key) => t(key), 'apiErrors.failedToCreateSession'))
-    }
+    onError: err => showError(err, 'apiErrors.failedToCreateSession'),
   })
-
-  // Update session mutation
   const updateSessionMutation = useMutation({
-    mutationFn: ({ sessionId, data }: { sessionId: string, data: UpdateSourceChatSessionRequest }) =>
+    retry: false,
+    mutationFn: ({ sessionId, data }: { sessionId: string; data: UpdateSourceChatSessionRequest }) =>
       sourceChatApi.updateSession(sourceId, sessionId, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['sourceChatSessions', sourceId] })
-      queryClient.invalidateQueries({ queryKey: ['sourceChatSession', sourceId, currentSessionId] })
+    onSuccess: (updated, variables) => {
+      queryClient.setQueryData<SourceChatSessionWithMessages>(['sourceChatSession', sourceId, variables.sessionId], old => old ? { ...old, ...updated } : old)
+      void queryClient.invalidateQueries({ queryKey: ['sourceChatSessions', sourceId, purpose] })
+      void queryClient.invalidateQueries({ queryKey: ['sourceChatSession', sourceId, variables.sessionId] })
       toast.success(t('chat.sessionUpdated'))
     },
-    onError: (err: unknown) => {
-      const error = err as { response?: { data?: { detail?: string } }, message?: string };
-      toast.error(getApiErrorMessage(error.response?.data?.detail || error.message, (key) => t(key), 'apiErrors.failedToUpdateSession'))
-    }
+    onError: err => showError(err, 'apiErrors.failedToUpdateSession'),
   })
-
-  // Delete session mutation
   const deleteSessionMutation = useMutation({
-    mutationFn: (sessionId: string) => 
-      sourceChatApi.deleteSession(sourceId, sessionId),
+    retry: false,
+    mutationFn: (id: string) => sourceChatApi.deleteSession(sourceId, id),
     onSuccess: (_, deletedId) => {
-      queryClient.invalidateQueries({ queryKey: ['sourceChatSessions', sourceId] })
-      if (currentSessionId === deletedId) {
-        setCurrentSessionId(null)
-        setMessages([])
-      }
+      void queryClient.invalidateQueries({ queryKey: ['sourceChatSessions', sourceId, purpose] })
+      if (currentSessionId === deletedId) selectSession(null)
       toast.success(t('chat.sessionDeleted'))
     },
-    onError: (err: unknown) => {
-      const error = err as { response?: { data?: { detail?: string } }, message?: string };
-      toast.error(getApiErrorMessage(error.response?.data?.detail || error.message, (key) => t(key), 'apiErrors.failedToDeleteSession'))
-    }
+    onError: err => showError(err, 'apiErrors.failedToDeleteSession'),
   })
 
-  // Send message with streaming
-  const sendMessage = useCallback(async (message: string, modelOverride?: string) => {
+  const sendMessage = useCallback(async (message: string, modelOverride?: string, reasoningEffort?: ReasoningEffort | null) => {
     let sessionId = currentSessionId
-
-    // Auto-create session if none exists
+    const pendingKey = sessionId ?? '__new__'
+    if (inFlight.current.has(pendingKey)) return false
+    inFlight.current.add(pendingKey)
     if (!sessionId) {
       try {
-        const defaultTitle = message.length > 30 ? `${message.substring(0, 30)}...` : message
-        const newSession = await sourceChatApi.createSession(sourceId, { title: defaultTitle })
+        const title = message.length > 30 ? `${message.substring(0, 30)}...` : message
+        const newSession = await sourceChatApi.createSession(sourceId, {
+          title, purpose, model_override: modelOverride, reasoning_effort: reasoningEffort,
+        })
         sessionId = newSession.id
-        setCurrentSessionId(sessionId)
-        queryClient.invalidateQueries({ queryKey: ['sourceChatSessions', sourceId] })
-      } catch (err: unknown) {
-        const error = err as { response?: { data?: { detail?: string } }, message?: string };
-        console.error('Failed to create chat session:', error)
-        toast.error(getApiErrorMessage(error.response?.data?.detail || error.message, (key) => t(key), 'apiErrors.failedToCreateSession'))
-        return
+        inFlight.current.add(sessionId)
+        inFlight.current.delete(pendingKey)
+        selectSession(sessionId)
+        void queryClient.invalidateQueries({ queryKey: ['sourceChatSessions', sourceId, purpose] })
+      } catch (error) {
+        inFlight.current.delete(pendingKey)
+        showError(error, 'apiErrors.failedToCreateSession')
+        return false
       }
     }
-
-    // Add user message optimistically
-    const userMessage: SourceChatMessage = {
-      id: `temp-${Date.now()}`,
-      type: 'human',
-      content: message,
-      timestamp: new Date().toISOString()
-    }
-    setMessages(prev => [...prev, userMessage])
-    setIsStreaming(true)
+    const capturedId = sessionId
+    const tempId = `temp-${Date.now()}-${Math.random()}`
+    const controller = new AbortController()
+    controllers.current.set(capturedId, controller)
+    setMessagesBySession(prev => ({ ...prev, [capturedId]: [...(prev[capturedId] ?? []), {
+      id: tempId, type: 'human', content: message, timestamp: new Date().toISOString(),
+    }] }))
+    setStreamingBySession(prev => ({ ...prev, [capturedId]: true }))
 
     try {
-      const response = await sourceChatApi.sendMessage(sourceId, sessionId, {
-        message,
-        model_override: modelOverride
-      })
-
-      if (!response) {
-        throw new Error('No response body')
-      }
-
-      const reader = response.getReader()
+      const stream = await sourceChatApi.sendMessage(sourceId, capturedId, {
+        message, model_override: modelOverride, reasoning_effort: reasoningEffort,
+      }, controller.signal)
+      if (!stream) throw new Error('No response body')
+      const reader = stream.getReader()
       const decoder = new TextDecoder()
-      let aiMessage: SourceChatMessage | null = null
       let buffer = ''
-
+      let completed = false
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
-
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
-
-        // Keep the last incomplete line in buffer
         buffer = lines.pop() || ''
-
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const jsonStr = line.slice(6).trim()
-              if (!jsonStr) continue
-
-              const data = JSON.parse(jsonStr)
-              
-              if (data.type === 'ai_message') {
-                // Create AI message on first content chunk to avoid empty bubble
-                if (!aiMessage) {
-                  aiMessage = {
-                    id: `ai-${Date.now()}`,
-                    type: 'ai',
-                    content: data.content || '',
-                    timestamp: new Date().toISOString()
-                  }
-                  setMessages(prev => [...prev, aiMessage!])
-                } else {
-                  aiMessage.content += data.content || ''
-                  setMessages(prev =>
-                    prev.map(msg => msg.id === aiMessage!.id
-                      ? { ...msg, content: aiMessage!.content }
-                      : msg
-                    )
-                  )
-                }
-              } else if (data.type === 'context_indicators') {
-                setContextIndicators(data.data)
-              } else if (data.type === 'error') {
-                throw new Error(data.message || 'Stream error')
-              }
-            } catch (e) {
-              if (e instanceof SyntaxError) {
-                console.error('Error parsing SSE data:', e)
-              } else {
-                throw e
-              }
+          if (!line.startsWith('data: ')) continue
+          let data: { type: string; content?: string; data?: SourceChatContextIndicator; message?: string }
+          try { data = JSON.parse(line.slice(6).trim()) } catch { continue }
+          if (data.type === 'ai_message') {
+            const aiMessage: SourceChatMessage = {
+              id: `ai-${tempId}`, type: 'ai', content: data.content || '', timestamp: new Date().toISOString(),
             }
+            setMessagesBySession(prev => ({ ...prev, [capturedId]: [...(prev[capturedId] ?? []), aiMessage] }))
+          } else if (data.type === 'context_indicators' && data.data) {
+            setIndicatorsBySession(prev => ({ ...prev, [capturedId]: data.data! }))
+          } else if (data.type === 'complete') {
+            completed = true
+          } else if (data.type === 'error') {
+            throw new Error(data.message || 'Stream error')
           }
         }
       }
-    } catch (err: unknown) {
-      const error = err as { response?: { data?: { detail?: string } }, message?: string };
-      console.error('Error sending message:', error)
-      toast.error(getApiErrorMessage(error.response?.data?.detail || error.message, (key) => t(key), 'apiErrors.failedToSendMessage'))
-      // Remove optimistic messages on error
-      setMessages(prev => prev.filter(msg => !msg.id.startsWith('temp-')))
+      if (!completed) throw new Error('Stream ended before completion')
+      return true
+    } catch (error) {
+      if (!controller.signal.aborted) showError(error, 'apiErrors.failedToSendMessage')
+      setMessagesBySession(prev => ({ ...prev, [capturedId]: (prev[capturedId] ?? []).filter(msg => msg.id !== tempId) }))
+      return false
     } finally {
-      setIsStreaming(false)
-      // Refetch session to get persisted messages
-      refetchCurrentSession()
+      controllers.current.delete(capturedId)
+      inFlight.current.delete(capturedId)
+      setStreamingBySession(prev => ({ ...prev, [capturedId]: false }))
+      void queryClient.invalidateQueries({ queryKey: ['sourceChatSession', sourceId, capturedId] })
     }
-  }, [sourceId, currentSessionId, refetchCurrentSession, queryClient, t])
-
-  // Cancel streaming
-  const cancelStreaming = useCallback(() => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort()
-      setIsStreaming(false)
-    }
-  }, [])
-
-  // Switch session
-  const switchSession = useCallback((sessionId: string) => {
-    setCurrentSessionId(sessionId)
-    setContextIndicators(null)
-  }, [])
-
-  // Create session
-  const createSession = useCallback((data: Omit<CreateSourceChatSessionRequest, 'source_id'>) => {
-    return createSessionMutation.mutate(data)
-  }, [createSessionMutation])
-
-  // Update session
-  const updateSession = useCallback((sessionId: string, data: UpdateSourceChatSessionRequest) => {
-    return updateSessionMutation.mutate({ sessionId, data })
-  }, [updateSessionMutation])
-
-  // Delete session
-  const deleteSession = useCallback((sessionId: string) => {
-    return deleteSessionMutation.mutate(sessionId)
-  }, [deleteSessionMutation])
+  }, [currentSessionId, sourceId, purpose, selectSession, queryClient, showError])
 
   return {
-    // State
     sessions,
-    currentSession: sessions.find(s => s.id === currentSessionId),
+    currentSession: currentSession?.id === currentSessionId ? currentSession : sessions.find(s => s.id === currentSessionId),
     currentSessionId,
-    messages,
-    isStreaming,
-    contextIndicators,
+    messages: currentSessionId ? messagesBySession[currentSessionId] ?? [] : [],
+    isStreaming: !!(currentSessionId && streamingBySession[currentSessionId]),
+    contextIndicators: currentSessionId ? indicatorsBySession[currentSessionId] ?? null : null,
     loadingSessions,
-    
-    // Actions
-    createSession,
-    updateSession,
-    deleteSession,
-    switchSession,
+    isUpdatingSession: updateSessionMutation.isPending,
+    createSession: (data: Omit<CreateSourceChatSessionRequest, 'source_id'>) => createSessionMutation.mutate(data),
+    updateSession: (sessionId: string, data: UpdateSourceChatSessionRequest) => updateSessionMutation.mutate({ sessionId, data }),
+    deleteSession: (sessionId: string) => deleteSessionMutation.mutate(sessionId),
+    deleteSessionAsync: (sessionId: string) => deleteSessionMutation.mutateAsync(sessionId),
+    isSessionStreaming: (sessionId: string) => inFlight.current.has(sessionId),
+    switchSession: (sessionId: string) => selectSession(sessionId),
     sendMessage,
-    cancelStreaming,
-    refetchSessions
+    cancelStreaming: () => { if (currentSessionId) controllers.current.get(currentSessionId)?.abort() },
+    refetchSessions,
   }
 }

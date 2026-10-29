@@ -67,12 +67,18 @@ import { toast } from 'sonner'
 import { useTranslation } from '@/lib/hooks/use-translation'
 import { SourceInsightDialog } from '@/components/sources/SourceInsightDialog'
 import { NotebookAssociations } from '@/components/sources/NotebookAssociations'
+import { PdfReader, PaperSelection } from '@/components/sources/PdfReader'
 
 interface SourceDetailContentProps {
   sourceId: string
   showChatButton?: boolean
   onChatClick?: () => void
   onClose?: () => void
+  onQuote?: (selection: PaperSelection) => void
+  onTranslate?: (selection: PaperSelection) => void
+  onExplain?: (selection: PaperSelection) => void
+  onPageChange?: (page: number) => void
+  initialPage?: number
 }
 
 const safeExternalHref = (url: string | null | undefined): string | null => {
@@ -98,10 +104,16 @@ function SourceDetailContentInner({
   sourceId,
   showChatButton = false,
   onChatClick,
-  onClose
+  onClose,
+  onQuote,
+  onTranslate,
+  onExplain,
+  onPageChange,
+  initialPage,
 }: SourceDetailContentProps) {
   const { t, language } = useTranslation()
   const queryClient = useQueryClient()
+  const [showExtractedText, setShowExtractedText] = useState(false)
   const [insights, setInsights] = useState<SourceInsightResponse[]>([])
   const [transformations, setTransformations] = useState<Transformation[]>([])
   const [selectedTransformation, setSelectedTransformation] = useState<string>('')
@@ -467,7 +479,7 @@ function SourceDetailContentInner({
             {showChatButton && onChatClick && (
               <Button variant="outline" size="sm" onClick={onChatClick}>
                 <MessageSquare className="h-4 w-4 mr-2" />
-                {t('chat.chatWith', { name: t('navigation.sources') })}
+                {t('reader.openWorkbench')}
               </Button>
             )}
 
@@ -567,9 +579,21 @@ function SourceDetailContentInner({
                   )}
                 </div>
               )}
-              <MarkdownRenderer>
-                {source.full_text || t('sources.noContent')}
-              </MarkdownRenderer>
+              {source.asset?.file_path?.toLowerCase().endsWith('.pdf') && fileAvailable !== false ? (
+                <>
+                  <div className="mb-3 flex gap-2" role="group" aria-label={t('sources.content')}>
+                    <Button size="sm" variant={!showExtractedText ? 'default' : 'outline'} onClick={() => setShowExtractedText(false)}>{t('reader.pdf')}</Button>
+                    <Button size="sm" variant={showExtractedText ? 'default' : 'outline'} onClick={() => setShowExtractedText(true)}>{t('reader.text')}</Button>
+                  </div>
+                  {showExtractedText ? (
+                    <div className="max-w-prose leading-relaxed"><MarkdownRenderer>{source.full_text || t('sources.noContent')}</MarkdownRenderer></div>
+                  ) : (
+                    <PdfReader sourceId={sourceId} title={source.title || ''} onQuote={onQuote} onTranslate={onTranslate} onExplain={onExplain} onPageChange={onPageChange} initialPage={initialPage} />
+                  )}
+                </>
+              ) : (
+                <div className="max-w-prose leading-relaxed"><MarkdownRenderer>{source.full_text || t('sources.noContent')}</MarkdownRenderer></div>
+              )}
             </section>
           </TabsContent>
 

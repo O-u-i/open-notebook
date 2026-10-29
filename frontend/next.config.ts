@@ -8,9 +8,16 @@ const allowedDevOrigins = process.env.NEXT_ALLOWED_DEV_ORIGINS
   ? process.env.NEXT_ALLOWED_DEV_ORIGINS.split(",").map((s) => s.trim()).filter(Boolean)
   : undefined;
 
+// Local builds can use a fresh directory, leaving an older running build intact.
+const localDistDir = process.env.OPEN_NOTEBOOK_DIST_DIR
+if (localDistDir && !/^\.next-local-[a-zA-Z0-9-]+$/.test(localDistDir)) {
+  throw new Error('Invalid OPEN_NOTEBOOK_DIST_DIR')
+}
+
 const nextConfig: NextConfig = {
   // Enable standalone output for optimized Docker deployment
   output: "standalone",
+  ...(localDistDir ? { distDir: localDistDir, typescript: { tsconfigPath: 'tsconfig.local-build.json' } } : {}),
 
   ...(allowedDevOrigins && allowedDevOrigins.length > 0 ? { allowedDevOrigins } : {}),
 

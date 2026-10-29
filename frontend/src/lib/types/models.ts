@@ -6,6 +6,7 @@ export interface Model {
   credential?: string | null
   created: string
   updated: string
+  supported_reasoning_efforts?: Array<'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra'>
 }
 
 export interface CreateModelRequest {

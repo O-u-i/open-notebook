@@ -3,6 +3,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from loguru import logger
 
 from open_notebook.ai.models import model_manager
+from open_notebook.ai.reasoning import configure_chat_model, validate_reasoning_effort
 from open_notebook.exceptions import ConfigurationError
 from open_notebook.utils import token_count
 
@@ -17,6 +18,15 @@ async def provision_langchain_model(
     Otherwise, returns the default model for the given type
     """
     tokens = token_count(content)
+    interactive_chat = kwargs.pop("interactive_chat", False)
+    reasoning_effort = kwargs.pop("reasoning_effort", None)
+    if interactive_chat:
+        if tokens > 105_000:
+            raise ConfigurationError(
+                "Chat context exceeds 105,000 tokens. Shorten the conversation or "
+                "start a new session; the selected model will not be switched silently."
+            )
+        await validate_reasoning_effort(model_id, reasoning_effort)
     model = None
     selection_reason = ""
 
@@ -58,4 +68,9 @@ async def provision_langchain_model(
             f"Please check that the model configured for '{default_type}' is a language model, not an embedding or speech model."
         )
 
-    return model.to_langchain()
+    langchain_model = model.to_langchain()
+    return (
+        configure_chat_model(langchain_model, reasoning_effort)
+        if interactive_chat
+        else langchain_model
+    )
