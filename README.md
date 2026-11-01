@@ -204,7 +204,7 @@ Thanks to the [Esperanto](https://github.com/lfnovo/esperanto) library, we suppo
 ## ✨ Key Features
 
 ### Core Capabilities
-- **🔒 Privacy-First**: Self-hosted; with local models nothing leaves your machine
+- **🔒 Privacy-First**: Self-host your data and use local models to avoid sending model requests to external AI providers; review other configured services and connections
 - **🎯 Multi-Notebook Organization**: Manage multiple research projects seamlessly
 - **📚 Universal Content Support**: PDFs, videos, audio, web pages, Office docs, and more
 - **🤖 Multi-Model AI Support**: 20+ providers including OpenAI, Anthropic, Ollama, Google, LM Studio, and more
@@ -217,10 +217,28 @@ Thanks to the [Esperanto](https://github.com/lfnovo/esperanto) library, we suppo
 - **⚡ Reasoning Model Support**: Full support for thinking models like DeepSeek-R1 and Qwen3
 - **🔧 Content Transformations**: Powerful customizable actions to summarize and extract insights
 - **🌐 Comprehensive REST API**: Full programmatic access for custom integrations [![API Docs](https://img.shields.io/badge/API-Documentation-blue?style=flat-square)](http://localhost:5055/docs)
-- **🔐 Optional Password Protection**: Secure public deployments with authentication
+- **🔐 Optional Password Protection**: Add a password and review the security guide before exposing any service
 - **📊 Fine-Grained Context Control**: Choose exactly what to share with AI models
 - **📎 Citations**: Get answers with proper source citations
 
+
+### Source Reader Workbench (feature branch)
+
+This branch adds a workbench to the source detail page. Pre-built images may not include these changes; see the [source development setup](docs/7-DEVELOPMENT/development-setup.md) for this branch.
+
+> **License review in progress:** PDF.js 6.4.299 includes Liberation Sans 1.07.4; the corresponding source and distribution scope are still under review. Do not publish or newly deploy the workbench until the review is complete.
+
+- Open an available original PDF alongside source chat; select text to quote, translate, or explain it with a page reference.
+- Compare two source conversations and use a separate translation and terminology assistant. Model and reasoning options depend on the configured provider and model.
+- The optional reader-memory bridge is restricted to local server access. It is not a general cross-device memory synchronization service.
+
+### Access one instance from two devices
+
+Run the application, database, and background worker on one computer and connect both browsers to that same instance. Use a private, authenticated connection with HTTPS, keep the database private, and read the [security guide](docs/5-CONFIGURATION/security.md) before exposing any service. Password protection alone is not a substitute for a production-hardened multi-user security setup.
+
+On the second computer, connect to the same private network, open the host's private HTTPS address, and sign in; a second checkout or installation of Open Notebook is not required. Both browsers access the same server-side notebooks, uploaded sources, model configuration, and persisted conversations. Verify with a non-sensitive test conversation or upload, and refresh the other browser if it does not show a recent change. Login state, unsent drafts, and other browser-local interface state are not guaranteed to match.
+
+The host must remain awake and online; this is remote access to one instance, not offline replication or a backup. Back up the database, uploaded files, and encryption key separately. Do not put those files, passwords, or provider credentials in Git. Ignore rules do not protect files that are already tracked: review the staged diff and Git commit identity before publishing.
 
 ## Podcast Feature
 

@@ -1,4 +1,10 @@
+# Environment files can contain credentials. Keep example templates shareable.
 .env
+.env.*
+*.env
+*.env.*
+!.env.example
+!*.env.example
 prompts/patterns/user/
 /notebooks/
 data/
@@ -14,6 +20,26 @@ __pycache__/
 todo.md
 temp/
 google-credentials.json
+# Common local secrets and private key stores (never place real credentials in examples).
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.kdbx
+.secrets
+.secrets.*
+*.secret
+*.secrets
+credentials.json
+*-credentials.json
+secrets.json
+password.txt
+passwords.txt
+*-password.txt
+*-passwords.txt
+secrets/
 # Distribution / packaging
 .Python
 build/
@@ -54,6 +80,7 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+.ruff_cache/
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -115,9 +142,14 @@ desktop.ini
 # Log files
 *.log
 
-# Database files
+# Database files and their journal/WAL sidecars
 *.db
+*.db3
+*.db-*
+*.sqlite
+*.sqlite-*
 *.sqlite3
+*.sqlite3-*
 
 .quarentena
 
@@ -167,5 +199,11 @@ history.txt
 AGENTS.md
 AGENTS.override.md
 CLAUDE.md
-/.codex/
-/.claude/
+GEMINI.md
+CODEX.md
+.codex/
+.claude/
+.gemini/
+.cursor/rules/
+.github/copilot-instructions.md
+.github/instructions/
