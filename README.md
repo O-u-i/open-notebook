@@ -1,5 +1,83 @@
 <a id="readme-top"></a>
 
+# Open Notebook - Fork Overview
+
+This branch extends [Open Notebook](https://github.com/lfnovo/open-notebook) with a source-reading workbench and documents a private, single-server workflow for two computers. The upstream project README follows below with minor wording and English-label adjustments.
+
+> **Release status:** This branch uses PDF.js 6.4.299. Its Liberation Sans 1.07.4 modified-font distribution terms remain under review, and the two bundled QuickJS MIT notices have not yet been added to the deployed assets. Do not publish or newly deploy the workbench until the review is complete. The instructions below document access to an existing installation.
+
+## What's Different in This Fork
+
+- **PDF reading workspace:** View an available original PDF with page navigation and zoom. Select text to quote it with a page reference, translate it, or ask for an explanation.
+- **Source conversations:** Compare two source-chat sessions and use a separate translation and terminology assistant. Model selection and reasoning controls depend on the configured provider and model.
+- **Optional local reader memory:** Preview selected Mei memory before use and create review candidates. The bridge is restricted to local access; it does not automatically share personal agent memory with a remote browser.
+- **Safer local configuration:** Ignore rules cover common local secrets, database files, deployment files, and agent configuration. Git still tracks files that were already added, so review the staged changes before every commit.
+- **Private remote-access guide:** The procedure below uses one existing host and an optional, separately licensed Tailscale installation. The app does not depend on a GitHub repository for data synchronization.
+
+## One Server, Two Windows PCs
+
+Computer **A** runs Open Notebook, its database, the background worker, and Tailscale. Computer **B** runs Tailscale and a web browser; it does not need a second Open Notebook installation or a copy of this branch. Both browsers use the same server-side notebooks, uploaded files, model configuration, and saved conversations. Refresh the other browser after a completed change; live collaborative editing and in-progress task synchronization are not guaranteed.
+
+This is remote access to one instance, **not** offline replication or a backup. A must stay awake, online, and running the app and Tailscale. Browser login state, unsent drafts, UI preferences, other agents' local files, and the local-only Mei reader-memory bridge are not automatically shared. Separate-device access and bidirectional upload/session behavior still need an end-to-end test.
+
+### Before You Begin
+
+- Use a private tailnet and a strong Open Notebook password. Serve is available to devices and identities permitted by your tailnet access policy; do not use Tailscale Funnel or expose the database to the public internet. Review the [security guide](docs/5-CONFIGURATION/security.md).
+- The [Tailscale Personal plan](https://tailscale.com/pricing) is intended for non-commercial personal use. Check current terms and plan limits; AI provider usage and other services can have separate charges.
+- This walkthrough references Tailscale **1.104.4**, the version checked for this setup. Tailscale is optional third-party software obtained directly from its publisher; review its [terms](https://tailscale.com/terms), update settings, and security advisories for your own use. Do not redistribute the installer with this repository.
+- Back up the database, uploaded files, and existing encryption key separately. Do not change an existing encryption key without a recovery plan. Keep passwords, keys, private URLs, and machine-specific settings out of Git.
+- B receives data displayed or downloaded in its browser, and the browser stores the application password locally. External AI providers receive any prompts and context sent to them. Use trusted devices and providers.
+
+### Computer A: Prepare the Host
+
+If A is already configured and its private HTTPS URL works, leave the existing configuration in place and continue with Computer B.
+
+1. Install and sign in to Tailscale on A using the same Windows installer and sign-in steps below. Keep the Tailscale tray icon connected.
+2. Open the [Tailscale DNS admin page](https://console.tailscale.com/admin/dns). Enable **MagicDNS** and, if needed, **HTTPS Certificates**. A Serve setup prompt may also guide you to enable HTTPS. Issuing a certificate records the machine's full DNS name in public Certificate Transparency logs; choose a machine name that contains no sensitive information before enabling it. The service itself remains subject to tailnet access controls. See [Tailscale's HTTPS documentation](https://tailscale.com/docs/how-to/set-up-https-certificates).
+3. On the [Machines page](https://console.tailscale.com/admin/machines), find A's full Tailscale DNS name. Use your own name wherever this guide shows `<a-machine>.<tailnet>.ts.net`; do not commit it or credentials to the repository.
+4. Configure the existing installation's API process with a strong `OPEN_NOTEBOOK_PASSWORD` or `OPEN_NOTEBOOK_PASSWORD_FILE`. Configure the **frontend process** with the private HTTPS URL, without an `/api` suffix. Use your local startup environment or secret manager; do not put the real values in tracked files. For Next.js development, frontend variables can be placed in the ignored `frontend/.env.local` file:
+
+   ```dotenv
+   API_URL=https://<a-machine>.<tailnet>.ts.net
+   ```
+
+   If a Next.js development server blocks the remote host, also set `NEXT_ALLOWED_DEV_ORIGINS` to the hostname only. The frontend forwards `/api/*` to `INTERNAL_API_URL`, normally `http://localhost:5055`. After current tasks finish, restart the affected processes to apply the new environment. See the [environment reference](docs/5-CONFIGURATION/environment-reference.md) and [reverse-proxy guide](docs/5-CONFIGURATION/reverse-proxy.md).
+5. Start the database, API, worker, and frontend on A using your existing local startup method. The source-development defaults use frontend port `3000`, API port `5055`, and database port `8000`; see [development setup](docs/7-DEVELOPMENT/development-setup.md). Keep the API and database on loopback where possible. Machine-specific startup scripts are not included in the repository.
+6. In PowerShell on A, check the existing Serve configuration. If `tailscale.exe` is not on `PATH`, replace the placeholder with the full path to your installed `tailscale.exe`:
+
+   ```powershell
+   & "<path-to-tailscale.exe>" serve status
+   ```
+
+   Only if it is not already configured for the local frontend, set up private HTTPS forwarding. The command can replace an existing Serve mapping on the same port, so inspect the status first:
+
+   ```powershell
+   & "<path-to-tailscale.exe>" serve --bg http://127.0.0.1:3000
+   & "<path-to-tailscale.exe>" serve status
+   ```
+
+   If prompted, open the displayed Tailscale link and complete the Serve/HTTPS enablement. Copy the private `https://...ts.net` URL from the status output; do not use Funnel. See the official [Serve examples](https://tailscale.com/docs/reference/examples/serve).
+7. On A, open that HTTPS URL and sign in to Open Notebook. Confirm the notebooks page loads and the API connects before trying B.
+
+### Computer B: One-Download Windows Installation
+
+1. On B, download the [official Tailscale 1.104.4 Windows installer](https://pkgs.tailscale.com/stable/tailscale-setup-1.104.4.exe). Windows 10 or later is required. This is a one-click download, but installation still requires running the downloaded installer and accepting any Windows administrator prompt.
+2. Run the installer and finish its prompts. Find the Tailscale icon in the system tray; if it is hidden, select the tray's up arrow. Choose **Log in** and use the **same account and sign-in provider** as A. Confirm the tray says **Connected**. If device approval is required, approve it in the Tailscale admin console.
+3. Check the installed version and update preferences in the Tailscale tray menu. New devices may inherit automatic-update settings from the tailnet. Review updates and their terms according to your policy, and do not defer important security updates indefinitely. See [Tailscale update settings](https://tailscale.com/kb/1067/update/).
+4. Open A's private HTTPS URL in B's browser and enter the **Open Notebook application password**, not a GitHub credential. Share the URL and password through a trusted channel, not a public issue or commit. Do not bypass certificate warnings.
+5. Test with a non-sensitive notebook, upload, or conversation on one computer; refresh the other computer to confirm the saved result appears, then repeat in the opposite direction. A model request can incur provider charges. Do not assume two simultaneous tasks or browser-local drafts are synchronized.
+
+### Troubleshooting
+
+- **`DNS_PROBE_FINISHED_NXDOMAIN`:** Check that both devices are connected to the same tailnet, MagicDNS is enabled, B accepts Tailscale DNS, and the full hostname is correct. A browser's explicitly selected Secure DNS provider can bypass the system resolver. If you choose to change it, open Chrome `chrome://settings/security` and, under **Use secure DNS**, choose **Operating system default (if available)** or **Current service provider**, depending on the Chrome version. Leave Secure DNS enabled. This change affects browser-wide DNS behavior and may permit fallback to unencrypted DNS; see [Chrome's Secure DNS guidance](https://support.google.com/chrome/answer/10468685?co=GENIE.Platform%3DDesktop&hl=en).
+- **Login page opens but the API is unreachable:** Confirm A's API and worker are running, `API_URL` is the private HTTPS URL without `/api`, the frontend can reach its internal API, and any configured `CORS_ORIGINS` includes the browser origin. See [reverse-proxy troubleshooting](docs/5-CONFIGURATION/reverse-proxy.md).
+- **The page is unavailable:** Confirm A is awake, the app and Tailscale are running, `serve status` shows the intended private mapping, and the tailnet policy permits B. Do not open database ports or enable Funnel as a shortcut.
+- **Mei memory is unavailable on B:** The reader-memory bridge is intentionally local-only in this branch. It does not provide remote access to A's personal agent memory; do not disable its loopback checks to work around this limitation.
+
+---
+
+## Upstream Open Notebook README
+
 <!-- [![Contributors][contributors-shield]][contributors-url] -->
 [![Forks][forks-shield]][forks-url]
 [![Stargazers][stars-shield]][stars-url]
@@ -42,14 +120,14 @@
 
 <div align="center">
   <!-- Keep these links. Translations will automatically update with the README. -->
-  <a href="https://zdoc.app/de/lfnovo/open-notebook">Deutsch</a> | 
-  <a href="https://zdoc.app/es/lfnovo/open-notebook">Español</a> | 
-  <a href="https://zdoc.app/fr/lfnovo/open-notebook">français</a> | 
-  <a href="https://zdoc.app/ja/lfnovo/open-notebook">日本語</a> | 
-  <a href="https://zdoc.app/ko/lfnovo/open-notebook">한국어</a> | 
-  <a href="https://zdoc.app/pt/lfnovo/open-notebook">Português</a> | 
-  <a href="https://zdoc.app/ru/lfnovo/open-notebook">Русский</a> | 
-  <a href="https://zdoc.app/zh/lfnovo/open-notebook">中文</a>
+  <a href="https://zdoc.app/de/lfnovo/open-notebook">German</a> |
+  <a href="https://zdoc.app/es/lfnovo/open-notebook">Spanish</a> |
+  <a href="https://zdoc.app/fr/lfnovo/open-notebook">French</a> |
+  <a href="https://zdoc.app/ja/lfnovo/open-notebook">Japanese</a> |
+  <a href="https://zdoc.app/ko/lfnovo/open-notebook">Korean</a> |
+  <a href="https://zdoc.app/pt/lfnovo/open-notebook">Portuguese</a> |
+  <a href="https://zdoc.app/ru/lfnovo/open-notebook">Russian</a> |
+  <a href="https://zdoc.app/zh/lfnovo/open-notebook">Chinese</a>
 </div>
 
 ## A private, multi-model, 100% local, full-featured alternative to Notebook LM
@@ -221,24 +299,6 @@ Thanks to the [Esperanto](https://github.com/lfnovo/esperanto) library, we suppo
 - **📊 Fine-Grained Context Control**: Choose exactly what to share with AI models
 - **📎 Citations**: Get answers with proper source citations
 
-
-### Source Reader Workbench (feature branch)
-
-This branch adds a workbench to the source detail page. Pre-built images may not include these changes; see the [source development setup](docs/7-DEVELOPMENT/development-setup.md) for this branch.
-
-> **License review in progress:** PDF.js 6.4.299 includes Liberation Sans 1.07.4; the corresponding source and distribution scope are still under review. Do not publish or newly deploy the workbench until the review is complete.
-
-- Open an available original PDF alongside source chat; select text to quote, translate, or explain it with a page reference.
-- Compare two source conversations and use a separate translation and terminology assistant. Model and reasoning options depend on the configured provider and model.
-- The optional reader-memory bridge is restricted to local server access. It is not a general cross-device memory synchronization service.
-
-### Access one instance from two devices
-
-Run the application, database, and background worker on one computer and connect both browsers to that same instance. Use a private, authenticated connection with HTTPS, keep the database private, and read the [security guide](docs/5-CONFIGURATION/security.md) before exposing any service. Password protection alone is not a substitute for a production-hardened multi-user security setup.
-
-On the second computer, connect to the same private network, open the host's private HTTPS address, and sign in; a second checkout or installation of Open Notebook is not required. Both browsers access the same server-side notebooks, uploaded sources, model configuration, and persisted conversations. Verify with a non-sensitive test conversation or upload, and refresh the other browser if it does not show a recent change. Login state, unsent drafts, and other browser-local interface state are not guaranteed to match.
-
-The host must remain awake and online; this is remote access to one instance, not offline replication or a backup. Back up the database, uploaded files, and encryption key separately. Do not put those files, passwords, or provider credentials in Git. Ignore rules do not protect files that are already tracked: review the staged diff and Git commit identity before publishing.
 
 ## Podcast Feature
 
