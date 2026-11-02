@@ -14,5 +14,10 @@ mkdirSync(target, { recursive: true })
 for (const item of ['LICENSE', 'cmaps', 'iccs', 'standard_fonts', 'wasm', 'web/images']) {
   cpSync(join(packageRoot, item), join(target, item), { recursive: true })
 }
+// pdfjs-dist 6.4.299 omits these MIT notices; Mozilla added them upstream in
+// a3beacc1a35f2d285f0505c5489d8cb4a9ebcc89. Keep them beside the sandbox files.
+for (const item of ['LICENSE_QUICKJS', 'LICENSE_PDFJS_QUICKJS']) {
+  cpSync(join(process.cwd(), 'licenses', 'pdfjs', item), join(target, 'wasm', item))
+}
 mkdirSync(join(target, 'build'), { recursive: true })
 cpSync(join(packageRoot, 'build', 'pdf.worker.mjs'), join(target, 'build', 'pdf.worker.mjs'))

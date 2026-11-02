@@ -4,7 +4,7 @@
 
 This branch extends [Open Notebook](https://github.com/lfnovo/open-notebook) with a source-reading workbench and documents a private, single-server workflow for two computers. The upstream project README follows below with minor wording and English-label adjustments.
 
-> **Release status:** This branch uses PDF.js 6.4.299. Its Liberation Sans 1.07.4 modified-font distribution terms remain under review, and the two bundled QuickJS MIT notices have not yet been added to the deployed assets. Do not publish or newly deploy the workbench until the review is complete. The instructions below document access to an existing installation.
+> **Release status:** This branch uses PDF.js 6.4.299. Its Liberation Sans 1.07.4 modified-font distribution terms remain under review. The asset preparation script includes the two QuickJS MIT notices missing from that PDF.js package. Do not publish or newly deploy the workbench until the review is complete. The instructions below document access to an existing installation.
 
 ## What's Different in This Fork
 
